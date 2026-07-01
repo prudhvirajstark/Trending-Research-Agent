@@ -19,6 +19,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# Define custom exception locally to satisfy Ruff F821
+class ReasoningLoopTruncatedError(Exception):
+    """Raised when the local ADK reasoning loop exceeds execution guardrails."""
+    pass
+
+def get_clean_degradation_message() -> str:
+    """Returns a safe payload when the reasoning loop is truncated mid-fight."""
+    return (
+        "⚠️ **System Notice**: The operational safety limits for this action have been reached "
+        "mid-execution to prevent an unstable logical loop. \n\n"
+        "**Current Status**: Processing has been cleanly suspended. Your tactical context and "
+        "historical steps up to this cycle have been securely saved to the session state."
+    )
+
 def get_google_api_key():
     """Retrieve the Google API key from environment variables."""
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -86,6 +101,8 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
         )
     print(f"🧩 Runner created for agent: '{agent.name}' with session: '{session.id}'")
     final_response = ""
+    tool_execution_count = 0
+    MAX_ALLOWED_ACTIONS = 5  # Hard safety circuit breaker ceiling
     execution_trace: ExecutionTrace = {
         "events": [],
         "tools_called": [],
@@ -125,6 +142,11 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
                 event_data["details"]["tool_call"] = str(event.tool_call)
                 execution_trace["tools_called"].append(str(event.tool_call))
                 logger.info(f"Tool called: {event.tool_call}")
+                tool_execution_count += 1
+
+            if tool_execution_count > MAX_ALLOWED_ACTIONS:
+                # Forcefully raise a truncation error to break out of the async iterator
+                raise ReasoningLoopTruncatedError("ADK_REASONING_LOOP_TRUNCATED_SAFETY_LIMIT")
 
             if hasattr(event, 'tool_result'):
                 print(f"   📊 Tool Result: {event.tool_result}")
@@ -150,7 +172,10 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
 
             execution_trace["events"].append(event_data)
             execution_trace["timestamps"].append(timestamp)
-
+    except ReasoningLoopTruncatedError as breaker_exception:
+        # Catch breaker event immediately and override the final text payload safely
+        final_response = get_clean_degradation_message()
+        logger.warning(f"Circuit breaker tripped mid-fight: {breaker_exception}")
     except Exception as e:
         final_response = f"An error occurred: {e}"
         logger.error(f"Error during agent execution: {e}", exc_info=True)
