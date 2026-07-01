@@ -7,6 +7,7 @@ __pycache__/
 *.so
 
 */responses/*
+*/traces/*
 .vscode/
 
 # Distribution / packaging

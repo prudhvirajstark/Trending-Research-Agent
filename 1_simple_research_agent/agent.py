@@ -1,12 +1,23 @@
 
 import os
 import asyncio
+import json
 from datetime import datetime
 from google.adk.agents import Agent
 from google.adk.tools import google_search
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai.types import Content, Part
+
+from models import ExecutionTrace, EventData
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def get_google_api_key():
     """Retrieve the Google API key from environment variables."""
@@ -75,26 +86,95 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
         )
     print(f"🧩 Runner created for agent: '{agent.name}' with session: '{session.id}'")
     final_response = ""
+    execution_trace: ExecutionTrace = {
+        "events": [],
+        "tools_called": [],
+        "reasoning_steps": [],
+        "timestamps": []
+    }
+
+
     try:
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session.id,
             new_message=Content(parts=[Part(text=query)], role="user")
         ):
+            # Log all event types
+            event_type = type(event).__name__
+            timestamp = datetime.now().isoformat()
+
+            logger.info(f"Event: {event_type}")
+            print(f"\n📍 Event Type: {event_type}")
+            print(f"   Timestamp: {timestamp}")
+
+            # Capture event data
+            event_data: EventData = {
+                "type": event_type,
+                "timestamp": timestamp,
+                "details": {}
+            }
+
+            # Check for different event types
+            if hasattr(event, 'content') and event.content:
+                print(f"   Content: {event.content}")
+                event_data["details"]["content"] = str(event.content)
+
+            if hasattr(event, 'tool_call'):
+                print(f"   🔧 Tool Call: {event.tool_call}")
+                event_data["details"]["tool_call"] = str(event.tool_call)
+                execution_trace["tools_called"].append(str(event.tool_call))
+                logger.info(f"Tool called: {event.tool_call}")
+
+            if hasattr(event, 'tool_result'):
+                print(f"   📊 Tool Result: {event.tool_result}")
+                event_data["details"]["tool_result"] = str(event.tool_result)
+
+            if hasattr(event, 'thinking'):
+                print(f"   🧠 Reasoning: {event.thinking}")
+                event_data["details"]["thinking"] = str(event.thinking)
+                execution_trace["reasoning_steps"].append(str(event.thinking))
+                logger.info(f"Reasoning: {event.thinking}")
+
+            if hasattr(event, 'text'):
+                print(f"   💬 Text: {event.text}")
+                event_data["details"]["text"] = str(event.text)
+
+            # Check if this is the final response
             if event.is_final_response():
+                print("\n✅ FINAL RESPONSE DETECTED")
                 if event.content and event.content.parts:
                     final_response = event.content.parts[0].text or ""
+                event_data["details"]["is_final"] = True
+                event_data["details"]["response"] = final_response
+
+            execution_trace["events"].append(event_data)
+            execution_trace["timestamps"].append(timestamp)
+
     except Exception as e:
         final_response = f"An error occurred: {e}"
+        logger.error(f"Error during agent execution: {e}", exc_info=True)
 
+
+    # Save detailed execution trace
+    trace_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    trace_filename = f"trace_{trace_timestamp}.json"
+
+    output_dir = os.path.join(os.getcwd(), "simple_research_agent", "traces")
+    os.makedirs(output_dir, exist_ok=True)
+    trace_filepath = os.path.join(output_dir, trace_filename)
+
+    with open(trace_filepath, "w", encoding="utf-8") as f:
+        json.dump(execution_trace, f, indent=2, default=str)
+
+    logger.info(f"Execution trace saved to: {trace_filepath}")
+    print(f"📋 Execution trace saved to: {trace_filepath}")
 
     # Save response to file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"response_{timestamp}.txt"
-
-    output_dir = os.path.join(os.getcwd(), "simple_research_agent", "responses")
-    os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, filename)
+    filename = f"response_{trace_timestamp}.txt"
+    response_output_dir = os.path.join(os.getcwd(), "simple_research_agent", "responses")
+    os.makedirs(response_output_dir, exist_ok=True)
+    filepath = os.path.join(response_output_dir, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"Timestamp: {datetime.now().isoformat()}\n")
@@ -103,6 +183,13 @@ async def run_agent_query(agent: Agent, query: str, session: Session, user_id: s
         f.write(f"Query: {query}\n")
         f.write("="*50 + "\n")
         f.write(f"Response:\n{final_response}\n")
+        f.write("="*50 + "\n")
+        f.write(f"Tools Called: {len(execution_trace['tools_called'])}\n")
+        if execution_trace['tools_called']:
+            for i, tool in enumerate(execution_trace['tools_called'], 1):
+                f.write(f"  {i}. {tool}\n")
+        f.write(f"Reasoning Steps: {len(execution_trace['reasoning_steps'])}\n")
+        f.write(f"Total Events: {len(execution_trace['events'])}\n")
 
     print(f"💾 Response saved to: {filepath}\n")
 
