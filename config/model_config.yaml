@@ -1,0 +1,55 @@
+models:
+  # Coordinator: Fast orchestration and tool-calling
+  coordinator:
+    model: "gemini-2.0-flash"
+    temperature: 0.3
+    max_output_tokens: 1000
+    reasoning_effort: null
+    description: "Fast, low latency, exceptional at tool-calling and orchestration"
+    use_case: "Route tasks, coordinate multi-agent communication, manage state"
+
+  # The Professor: Deep reasoning for structure and methodology
+  professor:
+    model: "gemini-2.5-pro"
+    temperature: 0.2
+    max_output_tokens: 4000
+    reasoning_effort: null  # Not using extended thinking; standard reasoning is sufficient
+    context_window: 100000
+    description: "Excellent reasoning, large context window for reading whole chapters"
+    use_case: "Provide methodological guidance, structural suggestions, literature recommendations"
+
+  # The Critic: Advanced reasoning with thinking for logical deconstruction
+  critic:
+    model: "gemini-2.5-pro"  # Using Pro instead of Flash Thinking for better consistency
+    temperature: 0.5
+    max_output_tokens: 4000
+    reasoning_effort: "medium"  # Enable thinking to deconstruct logical flaws
+    description: "Advanced step-by-step reasoning to find holes in research"
+    use_case: "Challenge assumptions, identify gaps, test robustness of arguments"
+
+  # The Reviewer: Fast evaluation against fixed rubric
+  reviewer:
+    model: "gemini-2.0-flash"
+    temperature: 0.0  # Very low for consistent rubric scoring
+    max_output_tokens: 2000
+    reasoning_effort: null
+    description: "High-speed processing against fixed evaluation checklist"
+    use_case: "Score against rubric, provide pass/fail verdict, assess compliance"
+
+# Safety settings (applied to all agents)
+safety_settings:
+  - category: "HARM_CATEGORY_HARASSMENT"
+    threshold: "BLOCK_ONLY_HIGH"
+  - category: "HARM_CATEGORY_HATE_SPEECH"
+    threshold: "BLOCK_ONLY_HIGH"
+  - category: "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+    threshold: "BLOCK_ONLY_HIGH"
+  - category: "HARM_CATEGORY_DANGEROUS_CONTENT"
+    threshold: "BLOCK_ONLY_HIGH"
+
+# API behavior settings
+api_behavior:
+  request_timeout_seconds: 60
+  max_retries: 3
+  retry_backoff_seconds: 2
+  rate_limit_requests_per_minute: 60
